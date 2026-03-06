@@ -1,12 +1,16 @@
 /**
  * API service layer for the Medical Triage System backend.
  *
- * The base URL defaults to http://localhost:8000 for local dev.
- * Set VITE_API_BASE_URL in .env to override.
+ * Local dev:
+ *   uses VITE_API_BASE_URL or http://localhost:8000
+ *
+ * Production on Vercel:
+ *   uses Vercel serverless proxy routes under /api
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-// const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000")
+  : "/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,32 +82,30 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
+
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(`API error ${res.status}: ${detail}`);
   }
+
   return res.json();
 }
 
 export const api = {
-  /** Check backend health */
   health: () => request<HealthStatus>("/health"),
 
-  /** Get next suggested symptom question */
   suggestQuestions: (data: SuggestInput) =>
     request<SuggestOutput>("/suggest-questions", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  /** Run triage prediction */
   predict: (data: TriageInput) =>
     request<TriageOutput>("/predict", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  /** Submit feedback */
   feedback: (data: FeedbackInput) =>
     request<FeedbackOutput>("/feedback", {
       method: "POST",
