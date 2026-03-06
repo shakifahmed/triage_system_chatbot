@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 250 30% 98%;
+    --foreground: 240 20% 16%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 20% 16%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 20% 16%;
+
+    --primary: 252 60% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 248 30% 94%;
+    --secondary-foreground: 252 40% 30%;
+
+    --muted: 250 25% 95%;
+    --muted-foreground: 240 10% 46%;
+
+    --accent: 220 70% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 250 20% 90%;
+    --input: 250 20% 90%;
+    --ring: 252 60% 58%;
+
+    --radius: 0.75rem;
+
+    --gradient-start: 252 80% 65%;
+    --gradient-end: 220 80% 60%;
+    --lavender: 250 40% 96%;
+    --chip: 252 50% 95%;
+    --chip-foreground: 252 50% 40%;
+    --bot-bubble: #CFDFF7;
+    --user-bubble: 252 60% 58%;
+    --success: 150 60% 45%;
+    --warning: 38 90% 55%;
+    --severity-mild: 150 50% 50%;
+    --severity-moderate: 38 80% 55%;
+    --severity-serious: 0 70% 55%;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 240 20% 8%;
+    --foreground: 250 20% 95%;
+
+    --card: 240 18% 12%;
+    --card-foreground: 250 20% 95%;
+
+    --popover: 240 18% 12%;
+    --popover-foreground: 250 20% 95%;
+
+    --primary: 252 60% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 248 20% 18%;
+    --secondary-foreground: 252 30% 80%;
+
+    --muted: 240 15% 18%;
+    --muted-foreground: 240 10% 60%;
+
+    --accent: 220 70% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 15% 20%;
+    --input: 240 15% 20%;
+    --ring: 252 60% 65%;
+
+    --lavender: 240 15% 14%;
+    --chip: 252 30% 20%;
+    --chip-foreground: 252 40% 75%;
+    --bot-bubble: #CFDFF7;
+    --user-bubble: 252 60% 55%;
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .bg-bot-bubble {
+    background-color: var(--bot-bubble);
+  }
+
+  .bg-user-bubble {
+    background-color: hsl(var(--user-bubble));
+  }
+}
