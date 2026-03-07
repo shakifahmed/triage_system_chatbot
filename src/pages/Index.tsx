@@ -31,13 +31,17 @@ const Index = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-card shadow-lg">
-              <Stethoscope className="h-10 w-10 text-primary" />
+            <div className="mx-auto mb-6 flex h-230 w-40 items-center justify-center rounded-3xl bg-card shadow-lg">
+              <Stethoscope className="h-20 w-20 text-primary" />
             </div>
 
-            <h1 className="mb-4 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              Check your symptoms &<br />find possible causes
+            <h1 className="mb-4 text-5xl font-bold tracking-tight text-foreground sm:text-6xl">
+              SymptomSense
             </h1>
+
+            <p className="mb-8 text-base text-black-foreground sm:text-lg">
+              Check your symptoms & find possible causes
+            </p>
 
             <div className="mb-8 flex items-center justify-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
@@ -46,9 +50,9 @@ const Index = () => {
               <span className="flex items-center gap-1">
                 <Clock className="h-4 w-4 text-primary" /> Just 3 minutes
               </span>
-              <span className="flex items-center gap-1">
+              {/* <span className="flex items-center gap-1">
                 <Stethoscope className="h-4 w-4 text-primary" /> By doctors
-              </span>
+              </span> */}
             </div>
 
             <Button
@@ -71,7 +75,7 @@ const Index = () => {
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {quickSymptoms.map((symptom) => (
-                  <button
+                <button
                   key={symptom.id}
                   onClick={() => handleSymptomClick(symptom.id)}
                   className="inline-flex items-center gap-1.5 rounded-full bg-chip px-4 py-2 text-sm font-medium text-chip-foreground transition-all hover:bg-primary/15 hover:shadow-sm"
