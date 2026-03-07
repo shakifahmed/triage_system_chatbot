@@ -40,7 +40,7 @@ const Index = () => {
             </h1>
 
             <p className="mb-8 text-base text-black-foreground sm:text-lg">
-              Check your symptoms & find possible causes
+              Check your symptoms & get primary care guidance
             </p>
 
             <div className="mb-8 flex items-center justify-center gap-4 text-sm text-muted-foreground">
