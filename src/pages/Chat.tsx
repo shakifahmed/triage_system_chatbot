@@ -24,10 +24,10 @@ const idsToApiString = (ids: string[]): string =>
 
 const Chat = () => {
   const [searchParams] = useSearchParams();
-  const symptomParam = searchParams.get("symptom") || "headache";
-  const sexParam = searchParams.get("sex") || "";
-  const ageParam = searchParams.get("age") || "25";
-  const durationParam = searchParams.get("duration") || "1";
+  const symptomParam  = searchParams.get("symptom")  || "headache";
+  const sexParam      = searchParams.get("sex")       || "";
+  const ageParam      = searchParams.get("age")       || "25";
+  const durationParam = searchParams.get("duration")  || "1";
 
   const symptomIds = symptomParam.split(",").map((s) => s.trim());
   const symptomNames = symptomIds.map(findSymptomName);
@@ -37,24 +37,44 @@ const Chat = () => {
       : symptomNames.slice(0, -1).join(", ") + " and " + symptomNames[symptomNames.length - 1];
 
   const navigate = useNavigate();
-  const location = useLocation();
+  const location  = useLocation();
 
-  // Check if we have restored messages from Results page
   const restoredMessages = (location.state as Record<string, unknown>)?.chatMessages as ChatMessage[] | undefined;
 
-  const [messages, setMessages] = useState<ChatMessage[]>(restoredMessages || []);
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [messages, setMessages]   = useState<ChatMessage[]>(restoredMessages || []);
+  const [input, setInput]         = useState("");
+  const [isTyping, setIsTyping]   = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Conversation state
-  const [severity, setSeverity] = useState<string | null>(restoredMessages ? "restored" : null);
-  const [confirmed, setConfirmed] = useState<string[]>([]);
-  const [rejected, setRejected] = useState<string[]>([]);
-  const [unsure, setUnsure] = useState<string[]>([]);
-  const [questionCount, setQuestionCount] = useState(0);
-  const [conversationDone, setConversationDone] = useState(!!restoredMessages);
+  // ── Core conversation state ────────────────────────────────────────────────
+  const [severity, setSeverity]                   = useState<string | null>(restoredMessages ? "restored" : null);
+  const [confirmed, setConfirmed]                 = useState<string[]>([]);
+  const [rejected, setRejected]                   = useState<string[]>([]);
+  const [unsure, setUnsure]                       = useState<string[]>([]);
+  const [questionCount, setQuestionCount]         = useState(0);
+  const [conversationDone, setConversationDone]   = useState(!!restoredMessages);
   const [currentSymptomKey, setCurrentSymptomKey] = useState<string | null>(null);
+
+  // ── Additional symptoms state ──────────────────────────────────────────────
+  // awaitingAdditionalSymptoms: pool drained the first time — bot has asked
+  //   "any other symptoms?", input is re-enabled for the patient to type extras.
+  //
+  // extraSeeds: the patient-volunteered extras, stored persistently in state.
+  //   CRITICAL — these must be passed on EVERY API call in the second round.
+  //   Because the backend is stateless it reconstructs the full pool from
+  //   scratch on each request. Without extraSeeds in every call the backend
+  //   won't know about them and won't call add_seed() for them, producing
+  //   wrong/repeated questions. This mirrors ques_sugg.py lines 799-814:
+  //     for sym in new_symptoms:
+  //         if sym in all_symptoms:
+  //             pool.add_seed(sym)   ← seed, not add_symptom
+  //     run_interview(pool)          ← same pool object reused; we replicate
+  //                                    this by always sending extraSeeds.
+  const [awaitingAdditionalSymptoms, setAwaitingAdditionalSymptoms] = useState(false);
+  const [extraSeeds, setExtraSeeds]               = useState<string[]>([]);
+
+  // Derived: true once the patient has entered extras and second round started.
+  const inSecondRound = extraSeeds.length > 0;
 
   const progress = severity === null ? 10 : conversationDone ? 100 : Math.min(20 + questionCount * 15, 90);
 
@@ -66,21 +86,52 @@ const Chat = () => {
     setMessages((prev) => [...prev, ...msgs]);
   }, []);
 
-  // Initial greeting (skip if restored from Results)
+  // ── Navigate to results ────────────────────────────────────────────────────
+  const navigateToResults = useCallback(
+    (finalConfirmed: string[]) => {
+      const allSymptoms = [
+        ...symptomIds.map((id) => findSymptomName(id).toLowerCase()),
+        ...finalConfirmed,
+      ].join(", ");
+
+      navigate("/results", {
+        state: {
+          symptoms:          allSymptoms,
+          age:               parseInt(ageParam),
+          gender:            sexParam === "male" ? "Male" : "Female",
+          severity:          severity || "Mild",
+          duration:          parseInt(durationParam),
+          symptomLabel,
+          confirmedSymptoms: finalConfirmed,
+          chatMessages:      messages,
+          chatParams: {
+            symptom:  symptomParam,
+            sex:      sexParam,
+            age:      ageParam,
+            duration: durationParam,
+          },
+        },
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [symptomIds, ageParam, sexParam, durationParam, severity, symptomLabel, navigate, symptomParam]
+  );
+
+  // Initial greeting
   useEffect(() => {
     if (restoredMessages) return;
     setIsTyping(true);
     const timer = setTimeout(() => {
       addMessages([
         {
-          id: "1",
+          id:     "1",
           sender: "bot",
-          text: `I understand you're experiencing **${symptomLabel}**. Let me ask you a few questions to better understand your situation.`,
+          text:   `I understand you're experiencing **${symptomLabel}**. Let me ask you a few questions to better understand your situation.`,
         },
         {
-          id: "2",
-          sender: "bot",
-          text: "How would you rate the intensity?",
+          id:           "2",
+          sender:       "bot",
+          text:         "How would you rate the intensity?",
           quickReplies: ["Mild", "Moderate", "Severe"],
         },
       ]);
@@ -93,123 +144,173 @@ const Chat = () => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
-  /** Call /suggest-questions and show the next question or finish */
+  // ── fetchNextQuestion ──────────────────────────────────────────────────────
+  /**
+   * Calls /suggest-questions and handles the response.
+   * Mirrors the ques_sugg.py run_interview loop, stateless per-call.
+   *
+   * @param newConfirmed    Full confirmed list so far.
+   * @param newRejected     Full rejected list so far.
+   * @param newUnsure       Full unsure list so far.
+   * @param currentExtras   The extras the patient volunteered after the pool
+   *                        first drained. Passed on every call in the second
+   *                        round — backend adds them as seeds via add_seed().
+   * @param isSecondRound   True during the second round. If pool drains again
+   *                        we go to results instead of asking for extras again.
+   */
   const fetchNextQuestion = useCallback(
-    async (newConfirmed: string[], newRejected: string[], newUnsure: string[]) => {
+    async (
+      newConfirmed:  string[],
+      newRejected:   string[],
+      newUnsure:     string[],
+      currentExtras: string[] = [],
+      isSecondRound: boolean  = false,
+    ) => {
       setIsTyping(true);
       try {
         const genderApi = sexParam === "male" ? "Male" : sexParam === "female" ? "Female" : "";
+
         const result = await api.suggestQuestions({
-          symptoms: idsToApiString(symptomIds),
-          confirmed: newConfirmed,
-          rejected: newRejected,
-          unsure: newUnsure,
-          gender: genderApi,
+          symptoms:            idsToApiString(symptomIds),
+          age:                 parseInt(ageParam),
+          confirmed:           newConfirmed,
+          rejected:            newRejected,
+          unsure:              newUnsure,
+          gender:              genderApi,
+          // Send extras on every second-round call so the backend calls
+          // add_seed() for each one, matching ques_sugg.py exit prompt logic
+          additional_symptoms: currentExtras,
         });
 
         if (result.next_question && result.question_text) {
           setCurrentSymptomKey(result.next_question);
           setQuestionCount((c) => c + 1);
           addMessage({
-            id: `q-${Date.now()}`,
-            sender: "bot",
-            text: result.question_text,
+            id:           `q-${Date.now()}`,
+            sender:       "bot",
+            text:         result.question_text,
             quickReplies: ["Yes", "No", "Not Sure"],
           });
         } else {
-          // No more questions — wrap up
-          setConversationDone(true);
+          // ── Pool drained ───────────────────────────────────────────────
           setCurrentSymptomKey(null);
 
-          if (result.has_severe_flag && result.matched_severe_symptoms.length > 0) {
+          // Severe warning shown on first drain only
+          if (!isSecondRound && result.has_severe_flag && result.matched_severe_symptoms.length > 0) {
             addMessage({
-              id: `severe-${Date.now()}`,
+              id:     `severe-${Date.now()}`,
               sender: "bot",
-              text: `⚠️ I've detected some symptoms that may need urgent attention: **${result.matched_severe_symptoms.join(", ")}**. I strongly recommend seeking immediate medical care.`,
+              text:   `⚠️ I've detected some symptoms that may need urgent attention: **${result.matched_severe_symptoms.join(", ")}**. I strongly recommend seeking immediate medical care.`,
             });
           }
 
-          addMessage({
-            id: "done",
-            sender: "bot",
-            text: "Thank you for answering all my questions! I've analyzed your symptoms. Let me show you the results.",
-          });
-
-          // Navigate to results with all collected data
-          const allSymptoms = [
-            ...symptomIds.map((id) => findSymptomName(id).toLowerCase()),
-            ...newConfirmed,
-          ].join(", ");
-
-          setTimeout(() => {
-            navigate("/results", {
-              state: {
-                symptoms: allSymptoms,
-                age: parseInt(ageParam),
-                gender: sexParam === "male" ? "Male" : "Female",
-                severity: severity || "Mild",
-                duration: parseInt(durationParam),
-                symptomLabel,
-                confirmedSymptoms: newConfirmed,
-                chatMessages: [...messages, { id: "done", sender: "bot", text: "Thank you for answering all my questions! I've analyzed your symptoms. Let me show you the results." }],
-                chatParams: { symptom: symptomParam, sex: sexParam, age: ageParam, duration: durationParam },
-              },
+          if (!isSecondRound) {
+            // ── First drain — ask for extras once, matching ques_sugg.py ─
+            setAwaitingAdditionalSymptoms(true);
+            addMessage({
+              id:           `extra-prompt-${Date.now()}`,
+              sender:       "bot",
+              text:         "Are there any other symptoms you'd like to mention? Type them separated by commas, or tap **No other symptoms** to see your results.",
+              quickReplies: ["No other symptoms"],
             });
-          }, 2000);
+          } else {
+            // ── Second drain — end session, go to results ─────────────────
+            setConversationDone(true);
+            addMessage({
+              id:     "done",
+              sender: "bot",
+              text:   "Thank you for answering all my questions! I've analyzed your symptoms. Let me show you the results.",
+            });
+            setTimeout(() => navigateToResults(newConfirmed), 2000);
+          }
         }
       } catch (error) {
         console.error("suggest-questions error:", error);
-        // On API error, still let user proceed to results
         setConversationDone(true);
+        setAwaitingAdditionalSymptoms(false);
         addMessage({
-          id: "error",
+          id:     "error",
           sender: "bot",
-          text: "I had trouble processing that. Let me show you what I have so far.",
+          text:   "I had trouble processing that. Let me show you what I have so far.",
         });
-        const allSymptoms = symptomIds.map((id) => findSymptomName(id).toLowerCase()).join(", ");
-        setTimeout(() => {
-          navigate("/results", {
-            state: {
-              symptoms: allSymptoms,
-              age: parseInt(ageParam),
-              gender: sexParam === "male" ? "Male" : "Female",
-              severity: severity || "Mild",
-              duration: parseInt(durationParam),
-              symptomLabel,
-              confirmedSymptoms: [],
-              chatMessages: [...messages],
-              chatParams: { symptom: symptomParam, sex: sexParam, age: ageParam, duration: durationParam },
-            },
-          });
-        }, 2000);
+        setTimeout(() => navigateToResults(newConfirmed), 2000);
       } finally {
         setIsTyping(false);
       }
     },
-    [symptomIds, sexParam, ageParam, durationParam, severity, symptomLabel, navigate, addMessage]
+    [symptomIds, sexParam, ageParam, addMessage, navigateToResults]
   );
 
+  // ── handleUserReply ────────────────────────────────────────────────────────
   const handleUserReply = (text: string) => {
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, sender: "user", text };
     addMessage(userMsg);
 
-    // Step 1: Severity selection
+    // ── Stage 0: Severity selection ────────────────────────────────────────
     if (!severity) {
       const sevChoice = text.trim();
       if (["Mild", "Moderate", "Severe"].includes(sevChoice)) {
         setSeverity(sevChoice);
-        // Start suggesting questions
         fetchNextQuestion([], [], []);
       }
       return;
     }
 
-    // Step 2: Handle Yes/No/Not Sure for suggested symptoms
+    // ── Stage 1: Additional symptoms entry ────────────────────────────────
+    // Mirrors ques_sugg.py exit prompt (lines 793-814):
+    // user enters comma-separated extras → each valid one becomes a new seed.
+    if (awaitingAdditionalSymptoms) {
+      setAwaitingAdditionalSymptoms(false);
+      const trimmed = text.trim().toLowerCase();
+
+      const isNegative =
+        trimmed === "no other symptoms" ||
+        trimmed === "no" ||
+        trimmed === "none" ||
+        trimmed === "";
+
+      if (isNegative) {
+        setConversationDone(true);
+        addMessage({
+          id:     "done",
+          sender: "bot",
+          text:   "Thank you for answering all my questions! I've analyzed your symptoms. Let me show you the results.",
+        });
+        setTimeout(() => navigateToResults(confirmed), 2000);
+      } else {
+        const extras = text
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+
+        // Add extras to confirmed — mirrors ques_sugg.py where add_seed()
+        // calls _add_symptom_internal() which does confirmed_symptoms.append().
+        // Without this, extras never reach navigateToResults and are invisible
+        // to the /predict call (the bug: "cough" typed but missing in results).
+        const newConfirmed = [...confirmed, ...extras];
+        setConfirmed(newConfirmed);
+
+        // Store in state — every subsequent Stage 2 call in this round
+        // needs to carry them so the backend reconstructs the pool correctly
+        setExtraSeeds(extras);
+
+        fetchNextQuestion(
+          newConfirmed, // use updated confirmed so second-round history is correct
+          rejected,
+          unsure,
+          extras,       // pass directly here too (state update is async)
+          true,         // isSecondRound
+        );
+      }
+      return;
+    }
+
+    // ── Stage 2: Yes / No / Not Sure for a suggested symptom ──────────────
     if (currentSymptomKey) {
       const answer = text.trim().toLowerCase();
       let newConfirmed = [...confirmed];
-      let newRejected = [...rejected];
-      let newUnsure = [...unsure];
+      let newRejected  = [...rejected];
+      let newUnsure    = [...unsure];
 
       if (answer === "yes") {
         newConfirmed = [...confirmed, currentSymptomKey];
@@ -223,7 +324,10 @@ const Chat = () => {
       }
 
       setCurrentSymptomKey(null);
-      fetchNextQuestion(newConfirmed, newRejected, newUnsure);
+
+      // Pass extraSeeds (from state) and inSecondRound on every call so
+      // the backend always has the full picture to reconstruct the pool
+      fetchNextQuestion(newConfirmed, newRejected, newUnsure, extraSeeds, inSecondRound);
       return;
     }
   };
@@ -236,22 +340,29 @@ const Chat = () => {
 
   const lastBotMessage = [...messages].reverse().find((m) => m.sender === "bot");
 
+  // Disabled while typing or fully done. Stays enabled while
+  // awaitingAdditionalSymptoms so the patient can type their extras.
+  const inputDisabled = isTyping || conversationDone;
+
   return (
     <div
       className="flex h-screen flex-col bg-lavender"
       style={{
         backgroundImage:
           "linear-gradient(rgba(255,255,255,0.55), rgba(255,255,255,0.55)), url('/Light%20Blue%20Illustrative%20Medical%20Project%20Presentation_chatting.svg')",
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
+        backgroundSize:     "cover",
+        backgroundPosition: "center",
+        backgroundRepeat:   "no-repeat",
       }}
     >
       {/* Header */}
       <div className="border-b border-border bg-card/70 px-4 py-3">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
-            <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: "var(--bot-bubble)" }}>
+          <div className="flex items-center gap-2">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full"
+              style={{ backgroundColor: "var(--bot-bubble)" }}
+            >
               <Stethoscope className="h-4 w-4 text-primary" />
             </div>
             <span className="text-sm font-semibold text-foreground">Symptom Check</span>
@@ -277,7 +388,10 @@ const Chat = () => {
               className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
             >
               {msg.sender === "bot" && (
-                <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: "var(--bot-bubble)" }}>
+                <div
+                  className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                  style={{ backgroundColor: "var(--bot-bubble)" }}
+                >
                   <Stethoscope className="h-4 w-4 text-primary" />
                 </div>
               )}
@@ -305,12 +419,15 @@ const Chat = () => {
               animate={{ opacity: 1 }}
               className="flex items-start"
             >
-              <div className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: "var(--bot-bubble)" }}>
+              <div
+                className="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                style={{ backgroundColor: "var(--bot-bubble)" }}
+              >
                 <Stethoscope className="h-4 w-4 text-primary" />
               </div>
               <div className="rounded-2xl bg-bot-bubble px-4 py-3">
                 <div className="flex gap-1">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "0ms" }} />
+                  <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "0ms" }}   />
                   <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "150ms" }} />
                   <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "300ms" }} />
                 </div>
@@ -344,13 +461,17 @@ const Chat = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder="Type a message..."
+            placeholder={
+              awaitingAdditionalSymptoms
+                ? "Type symptoms separated by commas, or say 'no'..."
+                : "Type a message..."
+            }
             className="rounded-full"
-            disabled={isTyping || conversationDone}
+            disabled={inputDisabled}
           />
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || isTyping || conversationDone}
+            disabled={!input.trim() || inputDisabled}
             size="icon"
             className="shrink-0 rounded-full"
           >

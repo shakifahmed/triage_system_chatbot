@@ -16,10 +16,18 @@ const API_BASE = import.meta.env.DEV
 
 export interface SuggestInput {
   symptoms: string;
+  /** Patient age — required by backend to select the correct PKL file */
+  age: number;
   confirmed: string[];
   rejected: string[];
   unsure: string[];
   gender?: string;
+  /**
+   * Extra symptoms volunteered by the patient after the pool drains.
+   * Each entry is treated as a new seed on the backend, reopening the pool
+   * without resetting prior confirmed / rejected state.
+   */
+  additional_symptoms?: string[];
 }
 
 export interface SuggestOutput {
@@ -29,6 +37,8 @@ export interface SuggestOutput {
   has_more: boolean;
   has_severe_flag: boolean;
   matched_severe_symptoms: string[];
+  /** Which age+gender PKL segment was used — useful for debugging */
+  age_group: string;
 }
 
 export interface TriageInput {
@@ -67,8 +77,14 @@ export interface HealthStatus {
   severe_list_loaded: boolean;
   severe_symptom_count: number;
   association_ready: boolean;
+  association_pkls_loaded: number;
+  association_pkl_keys: string[];
   llm_ready: boolean;
   llm_model: string | null;
+  llm_main_ready: boolean;
+  llm_main_model: string | null;
+  llm_qa_ready: boolean;
+  llm_qa_model: string | null;
 }
 
 // ── API Methods ──────────────────────────────────────────────────────────────

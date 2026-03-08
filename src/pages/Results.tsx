@@ -88,7 +88,7 @@ const Results = () => {
     }
     return {
       icon: CheckCircle,
-      label: "Self-Care / OTC Medication May Suffice",
+      label: "Self-Care or Self Medication May Suffice",
       className: "text-severity-mild bg-severity-mild/10 border-severity-mild/20",
     };
   };
@@ -191,7 +191,7 @@ const Results = () => {
                         className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${sev.className}`}
                       >
                         <Icon className="h-3.5 w-3.5" />
-                        {prediction.recommendation}
+                        {sev.label}
                       </span>
                     </div>
                     <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
